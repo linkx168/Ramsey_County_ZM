@@ -1,0 +1,57 @@
+---
+title: "Hg_fish_data"
+author: "Denver Link"
+date: "2023-10-19"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#library
+```{r}
+library(tidyverse)
+```
+
+#data
+```{r}
+fish <- read_csv("Data/ramsey_county_fish.csv")
+
+#Overview of fisheries data
+#each row is an observation of a fish in a DNR survey
+glimpse(fish)
+```
+
+#filtering
+```{r}
+#filter for surveys of abundance collapse data into CPUE and 
+fish <- fish %>% 
+  #selecting standard surveys for representative abundance data
+  filter(sampling_method %in% c("Standard 3/4-in mesh, double frame trap net sets",
+                                "Standard gill net sets")) %>% 
+  #removing surveys that are not representative of abundance
+  filter(!(survey_type.1 %in% c("Winter Kill Assessment", 
+                                "External Management Survey", 
+                                "Subsurvey",
+                                "Natural Reproduction Check", 
+                                "Targeted Survey", 
+                                "Dissolved Oxygen Check"))) %>% 
+  #removing samples with only 1 unit of effort 
+  filter(total_effort_1.1 > 1) %>% 
+  group_by(effort_ident, species.1) %>% 
+  mutate(count = n()) %>% 
+  distinct(lake_id, species.1, count, .keep_all = TRUE) %>% 
+  mutate(cpue = count/total_effort_1.1)
+```
+
+#data exploration
+```{r}
+fish %>% 
+  filter(species.1 %in% c("walleye", "largemouth_bass", "northern_pike", "bluegill")) %>% 
+  filter(!is.na(invasion_status)) %>% 
+  mutate(year = year(date_clean)) %>% 
+ggplot() +
+  geom_point(aes(x = invasion_status, y = cpue, color = year)) +
+  geom_boxplot(aes(x = invasion_status, y = cpue)) +
+  facet_grid(species.1 ~ lake_name.1, scales = "free")
+```
+

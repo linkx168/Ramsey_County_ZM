@@ -1,0 +1,62 @@
+---
+title: "ramsey_mercury"
+author: "Denver Link"
+date: "2023-10-19"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#library
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+#data
+```{r}
+hg <- read_csv("Data/ramsey_county_hg.csv")
+
+#take a look at the data
+#a row is a mercury value of a fish at a length in a lake
+#some surveys aggregated fish of similar length - the number of fish used in the sample is noted by NOFISH
+glimpse(hg)
+```
+
+#filtering
+```{r}
+hg <- hg %>% 
+  mutate(date = ymd(DATECOL)) %>% 
+  mutate(DOWID = str_replace_all(DOWID, "-", "")) %>% 
+  mutate(species = case_when(SPEC == "BLC" ~ "black_crappie",
+                             SPEC == "BLG" ~ "bluegill",
+                             SPEC == "CAP" ~ "carp",
+                             SPEC == "LMB" ~ "largemouth_bass",
+                             SPEC == "NOP" ~ "northern_pike",
+                             SPEC == "SMB" ~ "smallmouth_bass",
+                             SPEC == "WAE" ~ "walleye",
+                             SPEC == "WTS" ~ "white_sucker",
+                             SPEC == "YEP" ~ "yellow_perch",
+                             TRUE ~ NA)) %>% 
+  filter(!is.na(LGTHCM)) %>% 
+  filter(!is.na(HGPPM))
+```
+
+
+#data exploration
+```{r}
+hg %>% 
+  filter(!is.na(invasion_status)) %>% 
+  ggplot() +
+  geom_point(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  geom_smooth(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  facet_grid(species~WATERWAY, scales = "free") +
+  scale_color_manual(values = c("lightblue", "salmon"))
+
+hg %>% 
+  filter(!is.na(invasion_status)) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = invasion_status, y = HGPPM)) +
+  facet_grid(species~WATERWAY, scales = "free")
+```
+
