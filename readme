@@ -2,11 +2,19 @@
 
 
 # Invasion Status
- - Yes = Invaded lake, post-invasion record/measurement
- - No  = Invaded lake, pre-invasion record/measurement
+ - Post = Invaded lake, post-invasion record/measurement
+ - Pre  = Invaded lake, pre-invasion record/measurement
  - NA  = Lake never invaded with ZM
  
+
  # Lakes with high zebra mussel densities
  White Bear (82016700)
  McCarron (62005400)
+
+ # Data Import Notes
+ Because Git doesn't do data storage very well, we will use the googledrive() 
+ package to download the data files you need for this project. 
+ 1. Run the script "data_import.R"
+ 2. 
+
  
