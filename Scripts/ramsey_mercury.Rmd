@@ -42,7 +42,6 @@ hg <- hg %>%
   filter(!is.na(HGPPM))
 ```
 
-
 #data exploration
 ```{r}
 hg %>% 
@@ -59,4 +58,3 @@ hg %>%
   geom_boxplot(aes(x = invasion_status, y = HGPPM)) +
   facet_grid(species~WATERWAY, scales = "free")
 ```
-
