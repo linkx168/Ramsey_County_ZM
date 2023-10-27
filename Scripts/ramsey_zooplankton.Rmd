@@ -1,0 +1,42 @@
+---
+title: "ramsey_zoop"
+author: "Christopher Rounds"
+date: "10/27/2023"
+output: html_document
+---
+
+```{r setup}
+library(tidyverse)
+```
+
+Zooplankton data doesn't have lake names. If you are interested what lake a DOW corresponds to then use use lake finder https://www.dnr.state.mn.us/lakefind/index.html
+
+```{r}
+zooplankton <- read_csv("data/ramsey_county_zooplankton.csv")
+
+glimpse(zooplankton)
+# each row is the zooplankton community in a tow from the deep point of a specific lake
+```
+
+
+```{r}
+# change data so each row is an observation of one species
+
+zooplankton.long <- zooplankton %>% 
+  pivot_longer(contains("M3"), names_to = "zooplankton", values_to = "count")
+
+```
+
+
+
+```{r}
+zooplankton.long %>%
+  filter(!is.na(invasion_status)) %>%
+  filter(zooplankton == "DAPH.THOUS.M3") %>%
+  ggplot() +
+  geom_point(aes(x = invasion_status, y = count, color = YEAR)) +
+  geom_boxplot(aes(x = invasion_status, y = count)) +
+  facet_grid(~DOWID, scales = "free")
+
+```
+

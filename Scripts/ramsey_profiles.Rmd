@@ -1,0 +1,41 @@
+---
+title: "ramsey_profiles"
+author: "Christopher Rounds"
+date: "10/27/2023"
+output: html_document
+---
+
+```{r}
+profiles <- read_csv("Data/ramsey_county_profiles.csv")
+
+#Overview of profile data
+#each row is a depth in a profile at a lake
+glimpse(profiles)
+```
+
+# Gather surface samples
+```{r}
+# may be easier to just look at surface values - if you want that, run this code
+surface <- profiles %>% dplyr::filter(DEPTH == 0)
+```
+
+# Secchi Depth
+```{r}
+surface %>% 
+  filter(!is.na(invasion_status)) %>% 
+  ggplot() +
+  geom_point(aes(x = invasion_status, y = SEC.M, color = YEAR)) +
+  geom_boxplot(aes(x = invasion_status, y = SEC.M)) +
+  facet_grid(~DOWID, scales = "free")
+```
+
+# We can also look at responses over the days of the year
+```{r}
+surface %>% 
+  filter(!is.na(invasion_status)) %>% 
+  ggplot(aes(x = JULIANDAY, y = TP.MG.L, color = invasion_status)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(~DOWID, scales = "free")
+```
+
