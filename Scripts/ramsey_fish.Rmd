@@ -23,7 +23,7 @@ glimpse(fish)
 
 #filtering
 ```{r}
-#filter for surveys of abundance collapse data into CPUE and 
+#filter for surveys of abundance collapse data into CPUE
 fish <- fish %>% 
   #selecting standard surveys for representative abundance data
   filter(sampling_method %in% c("Standard 3/4-in mesh, double frame trap net sets",
@@ -49,9 +49,9 @@ fish %>%
   filter(species.1 %in% c("walleye", "largemouth_bass", "northern_pike", "bluegill")) %>% 
   filter(!is.na(invasion_status)) %>% 
   mutate(year = year(date_clean)) %>% 
-ggplot() +
-  geom_point(aes(x = invasion_status, y = cpue, color = year)) +
+  ggplot() +
   geom_boxplot(aes(x = invasion_status, y = cpue)) +
+  geom_point(aes(x = invasion_status, y = cpue, color = year)) +
   facet_grid(species.1 ~ lake_name.1, scales = "free")
 ```
 
