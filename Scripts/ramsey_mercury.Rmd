@@ -15,7 +15,7 @@ library(lubridate)
 
 #data
 ```{r}
-hg <- read_csv("Data/ramsey_county_hg.csv")
+hg <- read_csv("Scripts/data/ramsey_county_hg.csv")
 
 #take a look at the data
 #a row is a mercury value of a fish at a length in a lake
@@ -26,7 +26,7 @@ glimpse(hg)
 #filtering
 ```{r}
 hg <- hg %>% 
-  mutate(date = ymd(DATECOL)) %>% 
+  mutate(date = mdy(DATECOL2)) %>% 
   mutate(DOWID = str_replace_all(DOWID, "-", "")) %>% 
   mutate(species = case_when(SPEC == "BLC" ~ "black_crappie",
                              SPEC == "BLG" ~ "bluegill",
@@ -37,24 +37,177 @@ hg <- hg %>%
                              SPEC == "WAE" ~ "walleye",
                              SPEC == "WTS" ~ "white_sucker",
                              SPEC == "YEP" ~ "yellow_perch",
-                             TRUE ~ NA)) %>% 
+                             TRUE ~ SPEC)) %>% 
   filter(!is.na(LGTHCM)) %>% 
-  filter(!is.na(HGPPM))
+  filter(!is.na(HGPPM)) %>% 
+  mutate(lake.zm = case_when(is.na(invasion_status) ~ "Uninvaded",
+                             invasion_status %in% c("Uninvaded", "ZM") ~ "Zebra Mussel"))
 ```
 
 #data exploration
 ```{r}
+glimpse(hg)
+
+#lakes in the data
+hg %>% 
+  group_by(WATERWAY) %>% 
+  count() %>% 
+  print(n = nrow(.))
+
+#fish from the Missississippi River?
+hg %>% 
+  filter(WATERWAY == "MISSISSIPPI R.") %>% 
+  glimpse()
+
+#coverage of mercury samples from zebra mussel lakes with uninvaded and invaded time periods in all lakes and species
 hg %>% 
   filter(!is.na(invasion_status)) %>% 
+  ggplot() +
+  geom_point(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  geom_smooth(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  facet_grid(SPEC~WATERWAY, scales = "free") +
+  scale_color_manual(values = c("lightblue", "salmon"))
+
+#looking at just wae and nop samples
+hg %>% 
+  filter(SPEC %in% c("WAE", "NOP")) %>% 
+  filter(!is.na(invasion_status)) %>% 
+  ggplot() +
+  geom_point(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  geom_smooth(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  facet_grid(species~WATERWAY, scales = "free") +
+  scale_color_manual(values = c("lightblue", "salmon")) +
+  theme(legend.position = element_blank())
+ggsave("zm_lakes_wae_nop.png", width = 7, height = 5)
+
+hg %>% 
+  filter(SPEC %in% c("WAE", "NOP")) %>% 
+  filter(!is.na(invasion_status)) %>%
+  ggplot() +
+  geom_point(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  geom_smooth(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  facet_wrap(species~WATERWAY, scales = "free") +
+  scale_color_manual(values = c("lightblue", "salmon"))
+
+#pulling out lakes with sufficient data from zm lakes
+hg %>% 
+  filter((WATERWAY == "JOHANNA" & SPEC %in% c("NOP", "YEP", "WAE")) |
+           WATERWAY == "BALD EAGLE" & SPEC %in% c("NOP", "WAE")|
+           WATERWAY == "EAST VADNAIS" & SPEC %in% c("WAE", "NOP")|
+           WATERWAY == "LONG" & SPEC %in% c("CAP", "NOP", "WAE") |
+           WATERWAY == "MCCARRON" & SPEC %in% c("NOP", "LMB")|
+           WATERWAY == "OWASSO" & SPEC %in% c("NOP", "WAE", "YEP", "LMB", "BLG")|
+           WATERWAY == "PLEASANT" & SPEC %in% c("NOP", "WAE", "SMB", "WHB")|
+           WATERWAY == "WHITE BEAR" & SPEC %in% c("NOP", "WAE")) %>% 
   ggplot() +
   geom_point(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
   geom_smooth(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
   facet_grid(species~WATERWAY, scales = "free") +
   scale_color_manual(values = c("lightblue", "salmon"))
 
+#lakes that have pre and post data
+hg %>% 
+  filter((WATERWAY == "JOHANNA" & SPEC %in% c("NOP")) |
+           WATERWAY == "BALD EAGLE" & SPEC %in% c("WAE")|
+           WATERWAY == "EAST VADNAIS" & SPEC %in% c("WAE")|
+           WATERWAY == "LONG" & SPEC %in% c("NOP") |
+           WATERWAY == "PLEASANT" & SPEC %in% c("WAE", "WHB") |
+           WATERWAY == "WHITE BEAR" & SPEC %in% c("WAE")) %>% 
+  ggplot() +
+  geom_point(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  geom_smooth(aes(x = LGTHCM, y = HGPPM, color = invasion_status)) +
+  facet_grid(species~WATERWAY, scales = "free") +
+  scale_color_manual(values = c("lightblue", "salmon"))
+ggsave("zm_lakes_pre_post_sufficient.png", width = 7, height = 5)
+
 hg %>% 
   filter(!is.na(invasion_status)) %>% 
   ggplot() +
   geom_boxplot(aes(x = invasion_status, y = HGPPM)) +
   facet_grid(species~WATERWAY, scales = "free")
+
+#how do invaded and uninvaded lakes compare? and are the sampled fish of similar size?
+hg %>% 
+  ggplot() +
+  geom_boxplot(aes(y = log(HGPPM), x = invasion_status)) 
+
+hg %>% 
+  ggplot() +
+  geom_boxplot(aes(y = LGTHCM, x = invasion_status)) +
+  facet_wrap(~SPEC, scales = "free")
+
+#how do they look over time?
+hg %>% 
+  ggplot() +
+  geom_smooth(aes(YEARCOLL, HGPPM, color = invasion_status)) +
+  geom_jitter(aes(YEARCOLL, HGPPM, color = invasion_status)) +
+  scale_color_manual(values = c("lightblue", "salmon", "black"))
+
+hg %>% 
+  ggplot() +
+  geom_smooth(aes(YEARCOLL, HGPPM, color = invasion_status)) +
+  geom_point(aes(YEARCOLL, HGPPM, color = invasion_status)) +
+  scale_color_manual(values = c("lightblue", "salmon", "black"))
+
+#are there any non-invaded samples from 2021?
+hg %>% 
+  filter(YEARCOLL >= 2021) %>% 
+  group_by(WATERWAY, invasion_status,YEARCOLL) %>%
+  count()
+  print(n = nrow(.))
+#only long, johana, and pleasant were sampled in 2021 (thus all after invasion)
+
+#uninvaded lakes samples by speices 
+hg %>% 
+  filter(is.na(invasion_status)) %>% 
+  ggplot() + 
+  geom_smooth(aes(LGTHCM, HGPPM)) +
+  geom_point(aes(LGTHCM, HGPPM)) +
+  facet_grid(species~WATERWAY, scales = "free")
+
+hg %>% 
+  filter(is.na(invasion_status)) %>% 
+  filter(WATERWAY %in% c("GERVAIS", "NORTH STAR STEEL", "PHALEN", "TURTLE", "SILVER")) %>% 
+  ggplot() + 
+  geom_smooth(aes(YEARCOLL, HGPPM)) +
+  geom_point(aes(YEARCOLL, HGPPM)) +
+  facet_grid(species~WATERWAY, scales = "free")
+
+hg %>% 
+  filter(is.na(invasion_status)) %>% 
+  filter(SPEC %in% c("NOP", "WAE", "CAP", "YEP")) %>% 
+  filter(WATERWAY %in% c("GERVAIS", "NORTH STAR STEEL", "PHALEN", "TURTLE", "SILVER")) %>% 
+  ggplot() + 
+  geom_smooth(aes(LGTHCM, HGPPM)) +
+  geom_point(aes(LGTHCM, HGPPM)) +
+  facet_grid(species~WATERWAY, scales = "free")
+ggsave("best_reference.png", width = 7, height = 5)
+
+#temporal coverage?
+hg %>% 
+  filter(SPEC %in% c("NOP", "WAE")) %>% 
+  ggplot() +
+  geom_smooth(aes(YEARCOLL, HGPPM, color = lake.zm)) +
+  geom_point(aes(YEARCOLL, HGPPM, color = lake.zm), alpha = .3) +
+  facet_wrap(~species, scales = "free") +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = c("lightblue", "salmon"))
+ggsave("temporal_invaded_uninvaded.png", width = 7, height = 5)
+
+#should we concider LOD?
+hg %>% 
+  filter(!is.na(HGCODE)) %>% 
+  group_by(HGCODE, SPEC, WATERWAY) %>% 
+  count() %>% 
+  print(n = nrow(.))
 ```
+
+Quick thoughts:
+1. it would be great to see if we caught get 2022 and maybe even 2023 data
+2. There is a large lack of data for most species/lakes
+3. the best ZM pre/post systems are walleye from bald eagle, east vadnais, and pleasant; northern pike from johanna. 
+4. lakes with good uninvaded data without post data are northern pike in bald eagle, owasso, mccarron, and white bea; walleye in owasso and white bear; perch in johanna and owasso; largemouth bass in owasso
+4. in the lakes with good pre and post data there seems to be a general trend as seen in other lakes
+5. The only lakes sampled post 2021 were zebra mussel invaded... might be a problem for BACI
+6. several uninvaded lakes have good northern pike data but is sparse otherwise
+7. lakes with best uninvaded data: Gervais, norther star steel, phalen, turtle, silver

@@ -10,11 +10,13 @@ editor_options:
 #library
 ```{r}
 library(tidyverse)
+library(brms)
+library(tidybayes)
 ```
 
 #data
 ```{r}
-fish <- read_csv("Data/ramsey_county_fish.csv")
+fish <- read_csv("Scripts/Data/ramsey_county_fish.csv")
 
 #Overview of fisheries data
 #each row is an observation of a fish in a DNR survey
@@ -24,7 +26,7 @@ glimpse(fish)
 #filtering
 ```{r}
 #filter for surveys of abundance collapse data into CPUE
-fish <- fish %>% 
+good_surveys <- fish %>% 
   #selecting standard surveys for representative abundance data
   filter(sampling_method %in% c("Standard 3/4-in mesh, double frame trap net sets",
                                 "Standard gill net sets")) %>% 
@@ -37,21 +39,548 @@ fish <- fish %>%
                                 "Dissolved Oxygen Check"))) %>% 
   #removing samples with only 1 unit of effort 
   filter(total_effort_1.1 > 1) %>% 
-  group_by(effort_ident, species.1) %>% 
-  mutate(count = n()) %>% 
-  distinct(lake_id, species.1, count, .keep_all = TRUE) %>% 
-  mutate(cpue = count/total_effort_1.1)
+  distinct(effort_ident)
+
+good_fish <- good_surveys %>% 
+  left_join(fish)
+
+#checks
+good_fish %>% 
+  distinct(effort_ident) %>% 
+  glimpse()
+
+good_fish %>% 
+  group_by(sampling_method) %>% 
+  count()
+
+good_fish %>% 
+  group_by(survey_type.1) %>% 
+  count()
+
+good_fish %>% 
+  group_by(sampling_method) %>% 
+  summarise(effort.min = min(total_effort_1.1), 
+            effort.max = max(total_effort_1.1),
+            min.month = min(month(date_clean)),
+            max.month = max(month(date_clean)))
+
+cpue <- good_fish %>% 
+  group_by(effort_ident) %>% 
+  mutate(count.walleye = sum(species.1 == "walleye"),
+         count.northern_pike = sum(species.1 == "northern_pike"),
+         count.yellow_perch = sum(species.1 == "yellow_perch"),
+         count.black_bullhead = sum(species.1 == "black_bullhead"),
+         count.largemouth_bass = sum(species.1 == "largemouth_bass"),
+         count.bluegill = sum(species.1 == "bluegill"),
+         count.black_crappie = sum(species.1 == "black_crappie")) %>% 
+  mutate(cpue.walleye = count.walleye/total_effort_1.1,
+         cpue.northern_pike = count.northern_pike/total_effort_1.1,
+         cpue.yellow_perch = count.yellow_perch/total_effort_1.1,
+         cpue.black_bullhead = count.black_bullhead/total_effort_1.1,
+         cpue.largemouth_bass = count.largemouth_bass/total_effort_1.1,
+         cpue.bluegill = count.bluegill/total_effort_1.1,
+         cpue.black_crappie = count.black_crappie/total_effort_1.1) %>% 
+  distinct(effort_ident,
+           .keep_all = T) 
+glimpse(cpue)
+
+#making longer
+cpue.long <- cpue %>% 
+  pivot_longer(cols = starts_with("count.") | starts_with("cpue."),
+               names_to = "species") %>% 
+  separate(species, into = c("metric", "species"), sep = "\\.", remove = FALSE) %>% 
+  pivot_wider(names_from = metric, values_from = value) %>% 
+  select(county,
+         lake_id,
+         nhdhr.id,
+         lake_name.1,
+         date_clean,
+         survey_type.1,
+         sampling_method,
+         nothing_caught,
+         effort_ident,
+         year_infested,
+         invasion_status,
+         species,
+         total_effort_1.1,
+         count,
+         cpue) %>% 
+  mutate(lake_id = as.factor(lake_id))
 ```
 
 #data exploration
 ```{r}
-fish %>% 
-  filter(species.1 %in% c("walleye", "largemouth_bass", "northern_pike", "bluegill")) %>% 
-  filter(!is.na(invasion_status)) %>% 
+#invaded lakes
+cpue.long %>% 
+  filter(lake_name.1 %in% c("White Bear", "McCarron")) %>% 
   mutate(year = year(date_clean)) %>% 
   ggplot() +
-  geom_boxplot(aes(x = invasion_status, y = cpue)) +
-  geom_point(aes(x = invasion_status, y = cpue, color = year)) +
-  facet_grid(species.1 ~ lake_name.1, scales = "free")
+  geom_point(aes(x = year, y = cpue, color = sampling_method), alpha = .7) +
+  geom_smooth(aes(x = year, y = cpue, color = sampling_method), se = F) +
+  facet_grid(species~lake_name.1, scales = "free")
+
+#trend in walleye in both sampling methods from white bear
+cpue.long %>% 
+  filter(species == "walleye" & lake_name.1 == "White Bear") %>% 
+  ggplot() +
+  geom_point(aes(date_clean, count, color = sampling_method)) +
+  geom_smooth(aes(date_clean, count, color = sampling_method))
+
+#trend in bass and walleye from gill nets in white bear lake
+cpue.long %>% 
+  filter(lake_name.1 == "White Bear" & sampling_method == "Standard gill net sets") %>% 
+  filter(species %in% c("largemouth_bass", "walleye")) %>% 
+  ggplot() +
+  geom_point(aes(date_clean, count, color = species)) +
+  geom_smooth(aes(date_clean, count, color = species))
+
+cpue.long %>% 
+  filter(lake_name.1 %in% c("White Bear", "McCarron")) %>% 
+  filter(sampling_method == "Standard gill net sets") %>% 
+  ggplot() +
+  geom_boxplot(aes(invasion_status, log(cpue + 1), color = invasion_status)) +
+  facet_grid(species~lake_name.1, scales = "free") +
+  scale_color_manual(values = c("lightblue", "salmon"))
+
+cpue.long %>% 
+  filter(lake_name.1 %in% c("White Bear", "McCarron")) %>% 
+  filter(sampling_method == "Standard 3/4-in mesh, double frame trap net sets") %>% 
+  ggplot() +
+  geom_boxplot(aes(invasion_status, log(cpue + 1), color = invasion_status)) +
+  facet_grid(species~lake_name.1, scales = "free") +
+  scale_color_manual(values = c("lightblue", "salmon"))
+
+cpue.long %>% 
+  ggplot() + 
+  geom_histogram(aes(cpue)) +
+  facet_wrap(~species, scales = "free")
+
+cpue.long %>% 
+  mutate(log.cpue = log(cpue + 1)) %>% 
+  ggplot()+
+  geom_histogram(aes(log.cpue)) +
+  facet_wrap(~species, scales = "free")
 ```
 
+#preparing data for modeling
+```{r}
+fish_data_baci <- cpue.long %>% 
+  mutate(year = year(date_clean)) %>% 
+  mutate(ever.invaded = case_when(is.na(year_infested) ~ "N",
+                                  !is.na(year_infested) ~ "Y"),
+         baci_invasion = case_when(invasion_status %in% c("Uninvaded", "ZM") ~ invasion_status,
+                                   is.na(year_infested) & (year(date_clean) >= 2017) ~ "ZM",
+                                   is.na(year_infested) & (year(date_clean) < 2017) ~ "Uninvaded")) %>% 
+   filter((ever.invaded == "N" &year(date_clean) >2006) | (ever.invaded == "Y" & year(date_clean) > 2003)) %>% 
+  filter(lake_name.1 %in% c("McCarron", "White Bear",
+                            "Como", "Gervais", "Otter", "Silver", "Turtle"))
+#a decision to keep lakes in was made based on BACI framework sheet and...
+#all lakes must contain at least one year of data before and after invasion or pseudo invasion
+
+fish_data_baci %>% 
+  group_by(lake_name.1, ever.invaded, baci_invasion, year(date_clean)) %>% 
+  count() %>% 
+  print(n = nrow(.))
+#need to exclude lakes that have low zm density but are invaded 
+
+fish_data_baci %>% 
+  filter(ever.invaded == "N") %>% 
+  group_by(lake_name.1, baci_invasion) %>% 
+  count() %>% 
+  print(n = nrow(.))
+#only four reference systems have pre and post 2017
+```
+
+#running seperate models for each species and gear type
+
+#walleye
+```{r}
+#gill
+walleye.gill <- fish_data_baci %>% 
+  filter(species == "walleye" & sampling_method == "Standard gill net sets")
+
+#zero inflated negbino is getting closer but i think i need a better distribution
+walleye.gill.fit <- brm(count ~ ever.invaded*baci_invasion + offset(total_effort_1.1) + (1|lake_id) + (1|year), 
+                        data = walleye.gill,
+                        family = zero_inflated_poisson(),
+                        chains = 3,
+                        iter = 20000,
+                        warmup = 5000)
+
+#summary
+summary(walleye.gill.fit)
+plot(walleye.gill.fit)
+plot(conditional_effects(walleye.gill.fit))
+
+#plots of walleye gill nets
+
+
+
+#trap
+walleye.trap <- fish_data_baci %>% 
+  filter(species == "walleye" & sampling_method == "Standard 3/4-in mesh, double frame trap net sets")
+
+walleye.trap.fit <- brm(cpue ~ ever.invaded*baci_invasion + (1|lake_id) + (1|year), 
+                        data = walleye.trap,
+                        family = zero_inflated_poisson(),
+                        chains = 3,
+                        iter = 20000,
+                        warmup = 5000)
+
+summary(walleye.trap.fit)
+plot(walleye.trap.fit)
+plot(conditional_effects(walleye.trap.fit))
+```
+
+#bluegill
+```{r}
+#gill
+bluegill.gill <- fish_data_baci %>% 
+  filter(species == "bluegill" & sampling_method == "Standard gill net sets")
+
+#zero inflated negbino is getting closer but i think i need a better distribution
+bluegill.gill.fit <- brm(count ~ ever.invaded*baci_invasion + offset(total_effort_1.1) + (1|lake_id) + (1|year), 
+                        data = bluegill.gill,
+                        family = zero_inflated_poisson(),
+                        chains = 3,
+                        iter = 20000,
+                        warmup = 5000)
+
+#summary
+summary(bluegill.gill.fit)
+plot(bluegill.gill.fit)
+plot(conditional_effects(bluegill.gill.fit))
+pp_check(bluegill.gill.fit, ndraws = 100)
+
+#plots of bluegill gills
+uninvaded.difference <- bluegill.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(difference = exp(b_Intercept + b_baci_invasionZM) - exp(b_Intercept), .width = c(.95,.66)) %>% 
+  mutate(Status = "Uninvaded")
+
+invaded.difference <- bluegill.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(difference = exp(b_Intercept + b_baci_invasionZM + b_ever.invadedY + `b_ever.invadedY:baci_invasionZM`) - exp(b_Intercept + `b_ever.invadedY`), .width = c(.95,.66)) %>% 
+  mutate(Status = "Invaded")
+
+diff <- rbind(uninvaded.difference, invaded.difference)
+diff$Status <- factor(diff$Status, levels = c("Uninvaded", "Invaded"))
+
+plot.B <- diff %>% 
+  ggplot(aes(x = Status, color = Status, shape = Status)) +
+  geom_pointrange(aes(y = difference, ymin = .lower, ymax = .upper), show.legend = FALSE) +
+  geom_hline(yintercept =0, linetype = "dashed") +
+  scale_color_manual(values = c("lightblue", "salmon")) +
+  scale_shape_manual(values = c(18, 18)) +
+  ylab("Difference in the Number of Fish Caught") +
+  labs(x = NULL) 
+plot.B
+
+#all four groupings
+uninvaded.pre <- bluegill.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept), .width = c(.95)) %>% 
+  mutate(Lake = "Uninvaded") %>% 
+  mutate(Invasion = "Pre")
+
+uninvaded.post <- bluegill.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + b_baci_invasionZM), .width = c(.95)) %>% 
+  mutate(Lake = "Uninvaded") %>% 
+  mutate(Invasion = "Post")
+
+invaded.pre <- bluegill.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + `b_ever.invadedY`), .width = c(.95)) %>% 
+  mutate(Lake = "Invaded") %>% 
+  mutate(Invasion = "Pre")
+
+invaded.post <- bluegill.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + b_baci_invasionZM + b_ever.invadedY + `b_ever.invadedY:baci_invasionZM`), .width = c(.95)) %>% 
+  mutate(Lake = "Invaded") %>% 
+  mutate(Invasion = "Post")
+
+four <- rbind(uninvaded.pre, uninvaded.post, invaded.pre, invaded.post) %>% 
+  mutate(status = paste(Lake, Invasion))
+four$status <- factor(four$status, levels = c("Uninvaded Pre", "Uninvaded Post", "Invaded Pre", "Invaded Post"))
+
+plot.A <- four %>% 
+  ggplot(aes(x = status, color = Lake, shape = Invasion)) +
+  geom_pointrange(aes(y = median, ymin = .lower, ymax = .upper), show.legend = FALSE) +
+  scale_color_manual(values = c("salmon", "lightblue")) +
+  scale_shape_manual(values = c(16, 1)) +
+  ylab("Count of Fish") +
+  labs(x = NULL) +
+  scale_x_discrete(labels = c("U-Pre", "U-Post", "I-Pre", "I-Post"))
+plot.A
+
+
+#################trap######################
+bluegill.trap <- fish_data_baci %>% 
+  filter(species == "bluegill" & sampling_method == "Standard 3/4-in mesh, double frame trap net sets")
+
+bluegill.trap.fit <- brm(count ~ ever.invaded*baci_invasion + offset(total_effort_1.1) + (1|lake_id) + (1|year), 
+                        data = bluegill.trap,
+                        family = zero_inflated_poisson(),
+                        chains = 3,
+                        iter = 20000,
+                        warmup = 5000)
+
+summary(bluegill.trap.fit)
+plot(bluegill.trap.fit)
+plot(conditional_effects(bluegill.trap.fit))
+
+#plots of bluegill trap
+uninvaded.difference <- bluegill.trap.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(difference = exp(b_Intercept + b_baci_invasionZM) - exp(b_Intercept), .width = c(.95,.66)) %>% 
+  mutate(Status = "Uninvaded")
+
+invaded.difference <- bluegill.trap.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(difference = exp(b_Intercept + b_baci_invasionZM + b_ever.invadedY + `b_ever.invadedY:baci_invasionZM`) - exp(b_Intercept + `b_ever.invadedY`), .width = c(.95,.66)) %>% 
+  mutate(Status = "Invaded")
+
+diff <- rbind(uninvaded.difference, invaded.difference)
+diff$Status <- factor(diff$Status, levels = c("Uninvaded", "Invaded"))
+
+plot.B <- diff %>% 
+  ggplot(aes(x = Status, color = Status, shape = Status)) +
+  geom_pointrange(aes(y = difference, ymin = .lower, ymax = .upper), show.legend = FALSE) +
+  geom_hline(yintercept =0, linetype = "dashed") +
+  scale_color_manual(values = c("lightblue", "salmon")) +
+  scale_shape_manual(values = c(18, 18)) +
+  ylab("Difference in the Number of Fish Caught") +
+  labs(x = NULL) 
+plot.B
+
+#all four groupings
+uninvaded.pre <- bluegill.trap.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept), .width = c(.95)) %>% 
+  mutate(Lake = "Uninvaded") %>% 
+  mutate(Invasion = "Pre")
+
+uninvaded.post <- bluegill.trap.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + b_baci_invasionZM), .width = c(.95)) %>% 
+  mutate(Lake = "Uninvaded") %>% 
+  mutate(Invasion = "Post")
+
+invaded.pre <- bluegill.trap.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + `b_ever.invadedY`), .width = c(.95)) %>% 
+  mutate(Lake = "Invaded") %>% 
+  mutate(Invasion = "Pre")
+
+invaded.post <- bluegill.trap.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + b_baci_invasionZM + b_ever.invadedY + `b_ever.invadedY:baci_invasionZM`), .width = c(.95)) %>% 
+  mutate(Lake = "Invaded") %>% 
+  mutate(Invasion = "Post")
+
+four <- rbind(uninvaded.pre, uninvaded.post, invaded.pre, invaded.post) %>% 
+  mutate(status = paste(Lake, Invasion))
+four$status <- factor(four$status, levels = c("Uninvaded Pre", "Uninvaded Post", "Invaded Pre", "Invaded Post"))
+
+plot.A <- four %>% 
+  ggplot(aes(x = status, color = Lake, shape = Invasion)) +
+  geom_pointrange(aes(y = median, ymin = .lower, ymax = .upper), show.legend = FALSE) +
+  scale_color_manual(values = c("salmon", "lightblue")) +
+  scale_shape_manual(values = c(16, 1)) +
+  ylab("Count of Fish") +
+  labs(x = NULL) +
+  scale_x_discrete(labels = c("U-Pre", "U-Post", "I-Pre", "I-Post"))
+plot.A
+```
+
+#black crappie
+```{r}
+#collecting black crappie gill net data
+black_crappie.gill <- fish_data_baci %>% 
+  filter(species == "black_crappie" & sampling_method == "Standard gill net sets")
+
+#brms model - zero inflated poisson
+black_crappie.gill.fit <- brm(count ~ resp_rate(total_effort_1.1) + ever.invaded*baci_invasion + (1|lake_id) + (1|year), 
+                        data = black_crappie.gill,
+                        family = poisson(),
+                        chains = 3,
+                        iter = 20000,
+                        warmup = 5000)
+#saved model run
+readRDS("Output/black_crappie_gill.rds")
+
+#basic summary of brms model performance 
+check_zeroinflation(black_crappie.gill.fit)
+#I'm over fitting zeros - this will need to be fixed but we will move on for now
+plot(black_crappie.gill.fit) #checking model convergence 
+pp_check(black_crappie.gill.fit, ndraws = 100) #does the model fit the data?
+
+#basic summary of model output
+summary(black_crappie.gill.fit) #output summary
+plot(conditional_effects(black_crappie.gill.fit)) #conditional effects
+
+conditional_effects(black_crappie.gill.fit, "ever.invaded:baci_invasion")$"ever.invaded:baci_invasion"
+#we see here that conditional effects are estimated for the mean total effect from the surveys
+
+#generating conditional effects plots from posterior distributions 
+get_variables(black_crappie.gill.fit) #helps in generating draws from distributions
+
+#let's first look at all four conditions at once (zm/uninvaded, pre/post)
+#we can make the same "generic" conditional effects plot if we use log(6) for the offset
+#I set my offset for the mean effort in the data 
+uninvaded.pre <- black_crappie.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median = exp(b_Intercept + log(6)), .width = c(.95)) %>% 
+  mutate(Lake = "Uninvaded") %>% 
+  mutate(Invasion = "Pre")
+
+uninvaded.post <- black_crappie.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + b_baci_invasionZM + log(6)), .width = c(.95)) %>% 
+  mutate(Lake = "Uninvaded") %>% 
+  mutate(Invasion = "Post")
+
+invaded.pre <- black_crappie.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + `b_ever.invadedY` + log(6)), .width = c(.95)) %>% 
+  mutate(Lake = "Invaded") %>% 
+  mutate(Invasion = "Pre")
+
+invaded.post <- black_crappie.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(median =  exp(b_Intercept + b_baci_invasionZM + b_ever.invadedY + `b_ever.invadedY:baci_invasionZM` +log(6)), .width = c(.95)) %>% 
+  mutate(Lake = "Invaded") %>% 
+  mutate(Invasion = "Post")
+
+four <- rbind(uninvaded.pre, uninvaded.post, invaded.pre, invaded.post) %>% 
+  mutate(status = paste(Lake, Invasion))
+four$status <- factor(four$status, levels = c("Uninvaded Pre", "Uninvaded Post", "Invaded Pre", "Invaded Post"))
+four$Lake <- factor(four$Lake, labels = c("Uninvaded", "Invaded"))
+
+plot.A <- four %>% 
+  ggplot(aes(x = status, color = Invasion, shape = Invasion)) +
+  geom_pointrange(aes(y = median, ymin = .lower, ymax = .upper), show.legend = FALSE) +
+  scale_color_manual(values = c("salmon", "lightblue")) +
+  scale_shape_manual(values = c(16, 1)) +
+  ylab("Count of Fish Per Mean Effort") +
+  labs(x = NULL) +
+  scale_x_discrete(labels = c("U-Pre", "U-Post", "I-Pre", "I-Post"))
+plot.A
+
+
+#now let's make a plot of the difference pre/post in each the zm and uninvaded lakes
+uninvaded.difference <- black_crappie.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(difference = exp(b_Intercept + b_baci_invasionZM + log(6)) - exp(b_Intercept + log(6)), .width = c(.95,.66)) %>% 
+  mutate(Status = "Uninvaded")
+
+invaded.difference <- black_crappie.gill.fit %>% 
+  spread_draws(b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(difference = exp(b_Intercept + b_baci_invasionZM + b_ever.invadedY + `b_ever.invadedY:baci_invasionZM` + log(6)) - exp(b_Intercept + `b_ever.invadedY` +  log(6)), .width = c(.95,.66)) %>% 
+  mutate(Status = "Invaded")
+
+diff <- rbind(uninvaded.difference, invaded.difference)
+diff$Status <- factor(diff$Status, levels = c("Uninvaded", "Invaded"))
+
+plot.B <- diff %>% 
+  ggplot(aes(x = Status, color = Status, shape = Status)) +
+  geom_pointrange(aes(y = difference, ymin = .lower, ymax = .upper), show.legend = FALSE) +
+  geom_hline(yintercept =0, linetype = "dashed") +
+  scale_color_manual(values = c("lightblue", "salmon")) +
+  scale_shape_manual(values = c(18, 18)) +
+  ylab("Difference in the Count of Fish Caught Per Mean Effort") +
+  labs(x = NULL) 
+plot.B
+
+#now let's see how our random effects from the lakes are playing into our conditional effects
+lake.effects <- ranef(black_crappie.gill.fit)$lake_id
+lake.effects
+
+#this shows the general deviance of fish catch per lake
+black_crappie.gill.fit %>%
+  spread_draws(b_Intercept, r_lake_id[lake_id,]) %>% 
+  median_qi(condition_mean = b_Intercept + r_lake_id, .width = c(.95, .66)) %>%
+  mutate(Invasion = case_when(lake_id %in% c("62005400", "82016700") ~ "Invaded",
+                              TRUE ~ "Uninvaded")) %>% 
+  ggplot(aes(y = as.factor(lake_id), x = condition_mean, color = Invasion, xmin = .lower, xmax = .upper)) +
+  geom_pointinterval()
+#whoa - zm lakes more varaible? 
+
+
+#we can also look at these in the background of conditional effects
+uninvaded.pre <- black_crappie.gill.fit %>%
+  spread_draws( r_lake_id[lake_id,], b_Intercept) %>% 
+  median_qi(lake.mean = exp(b_Intercept+r_lake_id + log(6)), .width = c(.95, .66)) %>% 
+  mutate(Invasion = "Pre",
+         Lake = "Uninvaded")
+
+uninvaded.post  <- black_crappie.gill.fit %>%
+  spread_draws( r_lake_id[lake_id,], b_Intercept, b_baci_invasionZM) %>% 
+  median_qi(lake.mean = exp(b_Intercept+r_lake_id+b_baci_invasionZM + log(6)), .width = c(.95, .66)) %>% 
+  mutate(Invasion = "Post",
+         Lake = "Uninvaded")
+
+invaded.pre <- black_crappie.gill.fit %>% 
+  spread_draws( r_lake_id[lake_id,], b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(lake.mean = exp(b_Intercept+r_lake_id + `b_ever.invadedY` + log(6)), .width = c(.95, .66)) %>% 
+  mutate(Invasion = "Pre",
+         Lake = "Invaded") 
+
+invaded.post <- black_crappie.gill.fit %>% 
+  spread_draws( r_lake_id[lake_id,], b_Intercept, `b_ever.invadedY`, b_baci_invasionZM, `b_ever.invadedY:baci_invasionZM`) %>% 
+  median_qi(lake.mean = exp(b_Intercept+r_lake_id + `b_ever.invadedY` + b_baci_invasionZM + `b_ever.invadedY:baci_invasionZM` + log(6)), .width = c(.95, .66)) %>% 
+  mutate(Invasion = "Post",
+         Lake = "Invaded")
+
+all_random <- bind_rows(uninvaded.pre,
+                        uninvaded.post,
+                        invaded.pre,
+                        invaded.post) %>% 
+  mutate(Status = paste(Lake, Invasion))
+all_random$Invasion <- factor(all_random$Invasion, labels = c("Pre", "Post"))
+all_random$Lake <- factor(all_random$Lake, labels = c("Uninvaded", "Invaded"))
+
+ggplot() +
+  geom_pointinterval(data = four, aes(y = Invasion, x = median, xmin = .lower, xmax = .upper, colour=Invasion)) +
+  geom_pointinterval(data = all_random, aes(y = Invasion, x = lake.mean, xmin = .lower, xmax = .upper, colour=Invasion), position = "dodge", alpha = .1) +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 13), 
+        strip.background = element_blank())+
+  guides(color = "none") +
+  scale_color_manual("", values=c("#00BFC4","#F8766D")) +
+  facet_wrap(~Lake , scales = "free") + 
+  coord_flip() 
+
+#what about the effect of years?
+#generic plot of how catch for all lakes varies between years 
+black_crappie.gill.fit %>%
+  spread_draws(b_Intercept, r_year[year,]) %>% 
+  median_qi(condition_mean = b_Intercept + r_year, .width = c(.95, .66)) %>%
+  ggplot(aes(y = as.factor(year), x = condition_mean,  xmin = .lower, xmax = .upper)) +
+  geom_pointinterval()
+
+#trap
+black_crappie.trap <- fish_data_baci %>% 
+  filter(species == "black_crappie" & sampling_method == "Standard 3/4-in mesh, double frame trap net sets")
+
+black_crappie.trap.fit <- brm(cpue ~ ever.invaded*baci_invasion + (1|lake_id) + (1|year), 
+                        data = black_crappie.trap,
+                        family = gaussian(),
+                        chains = 3,
+                        iter = 3000,
+                        warmup = 1000)
+
+summary(black_crappie.trap.fit)
+plot(black_crappie.trap.fit)
+plot(conditional_effects(black_crappie.trap.fit))
+
+black_crappie.trap.fit %>% 
+  spread_draws(r_lake_id[lake_id,]) %>% 
+  ungroup() %>% 
+  mutate(lake_id = reorder(lake_id, r_lake_id)) %>% 
+  ggplot(aes(y = lake_id, x = r_lake_id)) +
+  stat_halfeye() +
+  geom_vline(xintercept = 0, linetype = "dashed")
+```
